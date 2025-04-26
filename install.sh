@@ -1,15 +1,36 @@
 #!/bin/bash
 set -e
 
+if [ "$EUID" -ne 0 ]; then
+    echo "Ce script doit être lancé en tant que root (sudo)." >&2
+    exit 1
+fi
+
 source "vfio/utils/logging.sh"
 source "vfio/utils/root.sh"
 source "vfio/utils/gpu.sh"
 
 QEMU_BIN="qemu-system-x86_64"
 QEMU_PATH="qemu-build/bin/$QEMU_BIN"
-PACKAGES="docker.io dialog pciutils screen libvirt-daemon-system libvirt-clients bridge-utils virt-manager ovmf"
+GPU_ROM_PATH="gpu.rom"
+PACKAGES="docker-ce dialog pciutils screen libvirt-daemon-system libvirt-clients bridge-utils virt-manager ovmf"
 VFIO_MODULES="vfio vfio_iommu_type1 vfio_pci vfio_virqfd"
 GRUB_OPTIONS="amd_iommu=on intel_iommu=on iommu=pt"
+GRUB_MODIFIED=false
+
+INTERACTIVE=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i|--interactive)
+            INTERACTIVE=true
+            shift
+            ;;
+        *)
+            echo "Option inconnue: $1"
+            exit 1
+            ;;
+    esac
+done
 
 get_consent() {
     local message="$1"
@@ -50,43 +71,80 @@ check_bios_grub() {
         fi
 
         log "[INFO] Configuring GRUB..."
-        sudo sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\"/&$GRUB_OPTIONS vfio-pci.ids=$gpu_ids /" /etc/default/grub
-        sudo update-grub
+        sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\"/&$GRUB_OPTIONS vfio-pci.ids=$gpu_ids /" /etc/default/grub
+        update-grub
+        GRUB_MODIFIED=true
         log "[INFO] GRUB updated. A reboot will be required."
     fi
 
     if ! grep -q "vfio" /etc/modules; then
         log "[INFO] Adding VFIO modules..."
         for module in $VFIO_MODULES; do
-            echo "$module" | sudo tee -a /etc/modules
+            echo "$module" | tee -a /etc/modules
         done
     fi
 
     if ! lsmod | grep -q "vfio"; then
         log "[INFO] Loading VFIO modules..."
         for module in $VFIO_MODULES; do
-            sudo modprobe "$module"
+            modprobe "$module"
         done
     fi
 }
 
+check_packages() {
+    local missing_packages=""
+    for package in $PACKAGES; do
+        if ! dpkg -l | grep -q "^ii  $package "; then
+            missing_packages="$missing_packages $package"
+        fi
+    done
+    echo "$missing_packages"
+}
+
 install_dependencies() {
-    local packages_message="The following packages will be installed:\n  - $PACKAGES"
+    local missing_packages=$(check_packages)
+    
+    if [ -z "$missing_packages" ]; then
+        log "[INFO] All required packages are already installed"
+        return
+    fi
+
+    local packages_message="The following packages will be installed:\n  - $missing_packages"
     if ! get_consent "$packages_message" "package installation"; then
         return
     fi
 
     log "[INFO] Installing dependencies..."
-    sudo apt-get update
-    sudo apt-get install -y $PACKAGES
-    sudo usermod -aG kvm,libvirt $USER
+    apt-get update
+    apt-get install -y $missing_packages
+    usermod -aG kvm,libvirt $SUDO_USER
     log "[INFO] Added user to kvm and libvirt groups"
     log "[INFO] Please log out and log back in for group changes to take effect"
 }
 
+check_qemu() {
+    if [ -f "$QEMU_BIN" ] || [ -L "$QEMU_BIN" ]; then
+        log "[INFO] QEMU binary found at $QEMU_BIN"
+        if "$QEMU_BIN" --version >/dev/null 2>&1; then
+            log "[INFO] QEMU is working correctly"
+            return 0
+        else
+            log "[WARNING] QEMU binary exists but doesn't work properly"
+            return 1
+        fi
+    fi
+    return 1
+}
+
 build_qemu() {
+    if check_qemu; then
+        log "[INFO] Using existing QEMU binary"
+        return
+    fi
+
     log "[INFO] Building QEMU..."
-    ./build-qemu.sh
+    bash build-qemu.sh
 }
 
 create_symlink() {
@@ -97,9 +155,26 @@ create_symlink() {
     ln -s "$QEMU_PATH" "$QEMU_BIN"
 }
 
+check_gpu_rom() {
+    if [ -f "$GPU_ROM_PATH" ]; then
+        log "[INFO] GPU ROM already exists at $GPU_ROM_PATH"
+        return 0
+    fi
+    return 1
+}
+
 generate_gpu_rom() {
+    if check_gpu_rom; then
+        log "[INFO] Using existing GPU ROM"
+        return
+    fi
+
     log "[INFO] Generating GPU ROM..."
-    sudo vfio/generate_gpu_rom.sh -s
+    local generate_args="-o $GPU_ROM_PATH"
+    if [ "$INTERACTIVE" = true ]; then
+        generate_args="$generate_args -i"
+    fi
+    bash vfio/generate_gpu_rom.sh $generate_args
 }
 
 main() {
@@ -110,7 +185,9 @@ main() {
     create_symlink
     generate_gpu_rom
     log "[OK] Installation completed successfully!"
-    log "[INFO] A reboot is required to apply GRUB changes."
+    if [ "$GRUB_MODIFIED" = true ]; then
+        log "[INFO] A reboot is required to apply GRUB changes."
+    fi
 }
 
 main "$@" 
