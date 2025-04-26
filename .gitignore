@@ -1,0 +1,7 @@
+*.iso
+*.qcow2
+*.tgz
+*.rom
+qemu-build/
+logs/
+qemu-system-x86_64 
