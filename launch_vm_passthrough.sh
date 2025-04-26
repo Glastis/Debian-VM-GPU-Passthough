@@ -304,13 +304,13 @@ main() {
     sudo -u root screen -dmS "$SCREEN_NAME" bash -c "
         echo 'Starting VM passthrough session...' >> \"logs/$log_file\" 2>&1
         echo 'Disconnecting GPU from host...' >> \"logs/$log_file\" 2>&1
-        bash vfio/disconnect_gpu_from_host.sh -g $GPU_PCI -a $AUDIO_PCI -n $UNBIND_AUDIO -s $SILENT >> \"logs/$log_file\" 2>&1
+        bash vfio/disconnect_gpu_from_host.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" -n \"$UNBIND_AUDIO\" -s \"$SILENT\" >> \"logs/$log_file\" 2>&1
         echo 'Binding devices to vfio-pci...' >> \"logs/$log_file\" 2>&1
-        bash vfio/bind_group16.sh -g $GPU_PCI -a $AUDIO_PCI -n $UNBIND_AUDIO -s $SILENT >> \"logs/$log_file\" 2>&1
+        bash vfio/bind_group16.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" -n \"$UNBIND_AUDIO\" -s \"$SILENT\" >> \"logs/$log_file\" 2>&1
         echo 'Starting VM...' >> \"logs/$log_file\" 2>&1
-        bash $VM_SCRIPT $vm_args >> \"logs/$log_file\" 2>&1
+        bash \"$VM_SCRIPT\" $vm_args >> \"logs/$log_file\" 2>&1
         echo 'Reconnecting GPU to host...' >> \"logs/$log_file\" 2>&1
-        bash vfio/reconnect_gpu_to_host.sh -g $GPU_PCI -a $AUDIO_PCI -n $UNBIND_AUDIO -s $SILENT >> \"logs/$log_file\" 2>&1
+        bash vfio/reconnect_gpu_to_host.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" -n \"$UNBIND_AUDIO\" -s \"$SILENT\" >> \"logs/$log_file\" 2>&1
     "
 
     log "[INFO] VM launched in screen session '$SCREEN_NAME'"
