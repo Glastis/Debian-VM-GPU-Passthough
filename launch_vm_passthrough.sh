@@ -1,10 +1,5 @@
 #!/bin/bash
-set -e
-
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root"
-    exit 1
-fi
+#set -e
 
 if [ ! -f "gpu.rom" ]; then
     echo "Error: GPU ROM file not found at vfio/gpu.rom"
@@ -20,7 +15,7 @@ source "vfio/utils/usb.sh"
 source "vfio/utils/args.sh"
 
 SCREEN_NAME="vm_passthrough"
-VM_SCRIPT="vfio/launch_vm.sh"
+VM_SCRIPT="qemu_passthrough.sh"
 USB_DEVICES=()
 CURSES=true
 DISK_IMG=""
@@ -46,6 +41,7 @@ select_usb_curses() {
     local menu_items=()
     local i=1
     while IFS= read -r line; do
+        local usb_id=$(echo "$line" | cut -d' ' -f1)
         menu_items+=("$i" "$line" "off")
         i=$((i + 1))
     done <<< "$usb_list"
@@ -54,7 +50,7 @@ select_usb_curses() {
     choices=$(dialog --stdout --checklist "Select USB devices to pass through" 20 120 10 "${menu_items[@]}")
     if [ $? -eq 0 ]; then
         for choice in $choices; do
-            local selected=$(echo "$usb_list" | sed -n "${choice}p")
+            local selected=$(echo "$usb_list" | sed -n "${choice}p" | cut -d' ' -f1)
             USB_DEVICES+=("$selected")
         done
     fi
@@ -90,7 +86,7 @@ select_usb() {
                 continue
             fi
 
-            local selected=$(echo "$usb_list" | sed -n "${choice}p")
+            local selected=$(echo "$usb_list" | sed -n "${choice}p" | cut -d' ' -f1)
             USB_DEVICES+=("$selected")
             log "Added USB device: $selected"
         done
@@ -279,38 +275,31 @@ main() {
         log "[INFO] USB devices: ${USB_DEVICES[*]}"
     fi
 
-    local vm_args="-g $GPU_PCI -d $DISK_IMG"
-    if [ -n "$AUDIO_PCI" ]; then
-        vm_args+=" -a $AUDIO_PCI"
-    fi
-    if [ "$UNBIND_AUDIO" = "false" ]; then
-        vm_args+=" -n"
-    fi
-    if [ "$SILENT" = "true" ]; then
-        vm_args+=" -s"
-    fi
-    for usb_device in "${USB_DEVICES[@]}"; do
-        vm_args+=" -u $usb_device"
-    done
-
     mkdir -p logs
+    vm_args=""
+    for usb_device in "${USB_DEVICES[@]}"; do
+        vm_args="$vm_args -u $usb_device"
+    done
     local log_file="vm_passthrough_$(date +%Y%m%d_%H%M%S).log"
     touch "logs/$log_file"
     ln -sf "$log_file" logs/latest.log
 
+
     log "[DEBUG] Starting screen session with log file: $log_file"
-    log "[DEBUG] Command to execute: $VM_SCRIPT $vm_args"
 
     sudo -u root screen -dmS "$SCREEN_NAME" bash -c "
         echo 'Starting VM passthrough session...' >> \"logs/$log_file\" 2>&1
         echo 'Disconnecting GPU from host...' >> \"logs/$log_file\" 2>&1
-        bash vfio/disconnect_gpu_from_host.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" -n \"$UNBIND_AUDIO\" -s \"$SILENT\" >> \"logs/$log_file\" 2>&1
+        bash vfio/disconnect_gpu_from_host.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" >> \"logs/$log_file\" 2>&1
         echo 'Binding devices to vfio-pci...' >> \"logs/$log_file\" 2>&1
-        bash vfio/bind_group16.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" -n \"$UNBIND_AUDIO\" -s \"$SILENT\" >> \"logs/$log_file\" 2>&1
+        echo bash vfio/bind_group16.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" >> \"logs/$log_file\" 2>&1
+        bash vfio/bind_group16.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" >> \"logs/$log_file\" 2>&1
+        sleep 1
         echo 'Starting VM...' >> \"logs/$log_file\" 2>&1
-        bash \"$VM_SCRIPT\" $vm_args >> \"logs/$log_file\" 2>&1
-        echo 'Reconnecting GPU to host...' >> \"logs/$log_file\" 2>&1
-        bash vfio/reconnect_gpu_to_host.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" -n \"$UNBIND_AUDIO\" -s \"$SILENT\" >> \"logs/$log_file\" 2>&1
+        echo bash \"$VM_SCRIPT\" -g \"$GPU_PCI\" -d \"$DISK_IMG\" -a \"$AUDIO_PCI\" $vm_args >> \"logs/$log_file\" 2>&1
+        bash \"$VM_SCRIPT\" -g \"$GPU_PCI\" -d \"$DISK_IMG\" -a \"$AUDIO_PCI\" $vm_args >> \"logs/$log_file\" 2>&1
+        #echo 'Reconnecting GPU to host...' >> \"logs/$log_file\" 2>&1
+        #bash vfio/reconnect_gpu_to_host.sh -g \"$GPU_PCI\" -a \"$AUDIO_PCI\" >> \"logs/$log_file\" 2>&1
     "
 
     log "[INFO] VM launched in screen session '$SCREEN_NAME'"
@@ -319,7 +308,7 @@ main() {
     log "[INFO] Logs are saved in $log_file"
     log "[INFO] Latest logs can be found in logs/latest.log"
 
-    if [ "$SHOW_LOGS" = "true" ]; then
+    if [ "$SHOW_LOGS" = true ]; then
         tail -f "logs/$log_file"
     fi
 }

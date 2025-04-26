@@ -2,7 +2,7 @@
 
 select_audio_curses() {
     local gpu_pci="$1"
-    local audio_info=$(lspci -nn | grep -i "audio" | grep "$gpu_pci")
+    local audio_info=$(lspci -D -nn | grep -i "audio" | grep "$gpu_pci")
     
     if [ -z "$audio_info" ]; then
         if [ "$UNBIND_AUDIO" = "true" ]; then
@@ -47,7 +47,7 @@ select_audio_curses() {
 
 select_audio() {
     local gpu_pci="$1"
-    local audio_info=$(lspci -nn | grep -i "audio" | grep "$gpu_pci")
+    local audio_info=$(lspci -D -nn | grep -i "audio" | grep "$gpu_pci")
     
     if [ -z "$audio_info" ]; then
         if [ "$UNBIND_AUDIO" = "true" ]; then

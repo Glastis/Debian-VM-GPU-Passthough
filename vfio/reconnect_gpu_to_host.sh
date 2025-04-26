@@ -1,21 +1,26 @@
 #!/bin/bash
-set -e
+#set -e
 
 source "$(dirname "$0")/utils/logging.sh"
 source "$(dirname "$0")/utils/root.sh"
 source "$(dirname "$0")/utils/gpu.sh"
 source "$(dirname "$0")/utils/audio.sh"
 source "$(dirname "$0")/utils/args.sh"
+source "$(dirname "$0")/utils/pci.sh"
 
+DESKTOP_ENVIRONMENT="sddm"
 SILENT=false
 UNBIND_AUDIO=false
+PATH_PCI="/sys/bus/pci"
+PATH_PCI_DRIVERS="$PATH_PCI/drivers"
+PATH_PCI_DEVICES="$PATH_PCI/devices"
 
 unbind_from_vfio() {
     log "[INFO] Unbinding devices from VFIO driver..."
     if [ "$UNBIND_AUDIO" = "true" ] && [ -n "$AUDIO_PCI" ]; then
-        echo "$AUDIO_PCI" > /sys/bus/pci/drivers/vfio-pci/unbind || true
+        echo "$(get_full_pci_id "$AUDIO_PCI")" > "$PATH_PCI_DRIVERS/vfio-pci/unbind" || true
     fi
-    echo "$GPU_PCI" > /sys/bus/pci/drivers/vfio-pci/unbind || true
+    echo "$(get_full_pci_id "$GPU_PCI")" > "$PATH_PCI_DRIVERS/vfio-pci/unbind" || true
 }
 
 load_nvidia_modules() {
@@ -24,19 +29,21 @@ load_nvidia_modules() {
     modprobe nvidia_drm
     modprobe nvidia_modeset
     modprobe nvidia_uvm
-    modprobe nouveau
 }
 
 bind_to_host() {
     log "[INFO] Binding devices to host drivers..."
-    echo "nvidia" > /sys/bus/pci/devices/$GPU_PCI/driver_override
-    echo $GPU_PCI > /sys/bus/pci/drivers/nvidia/bind
-    echo "" > /sys/bus/pci/devices/$GPU_PCI/driver_override
+    local full_gpu_pci=$(get_full_pci_id "$GPU_PCI")
+    log "[INFO] Full GPU PCI: $full_gpu_pci"
+    echo "nvidia" > "$PATH_PCI_DEVICES/$full_gpu_pci/driver_override"
+    echo $full_gpu_pci > "$PATH_PCI_DRIVERS/nvidia/bind"
+    echo "" > "$PATH_PCI_DEVICES/$full_gpu_pci/driver_override"
 
     if [ "$UNBIND_AUDIO" = "true" ] && [ -n "$AUDIO_PCI" ]; then
-        echo "snd_hda_intel" > /sys/bus/pci/devices/$AUDIO_PCI/driver_override
-        echo $AUDIO_PCI > /sys/bus/pci/drivers/snd_hda_intel/bind
-        echo "" > /sys/bus/pci/devices/$AUDIO_PCI/driver_override
+        local full_audio_pci=$(get_full_pci_id "$AUDIO_PCI")
+        echo "snd_hda_intel" > "$PATH_PCI_DEVICES/$full_audio_pci/driver_override"
+        echo $full_audio_pci > "$PATH_PCI_DRIVERS/snd_hda_intel/bind"
+        echo "" > "$PATH_PCI_DEVICES/$full_audio_pci/driver_override"
     fi
 }
 
@@ -57,12 +64,40 @@ show_help() {
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
-        if ! parse_common_args "$1" "$2"; then
-            log "Unknown option: $1"
-            show_help
-            exit 1
-        fi
-        shift
+        case $1 in
+            -g|--gpu-pci)
+                GPU_PCI="$2"
+                shift 2
+                ;;
+            -a|--audio-pci)
+                AUDIO_PCI="$2"
+                shift 2
+                ;;
+            -i|--interactive)
+                INTERACTIVE="true"
+                shift
+                ;;
+            -n|--no-audio)
+                UNBIND_AUDIO=false
+                shift
+                ;;
+            -s|--silent)
+                SILENT=true
+                shift
+                ;;
+            -e|--environment)
+                DESKTOP_ENVIRONMENT="$2"
+                shift 2
+                ;;
+            -h|--help)
+                show_help
+                ;;
+            *)
+                log "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
     done
 }
 
@@ -84,10 +119,8 @@ main() {
     parse_args "$@"
     detect_devices
     unbind_from_vfio
-    load_nvidia_modules
-    sleep 0.5
     bind_to_host
-    sleep 1
+    load_nvidia_modules
     start_desktop_environment
     log "[OK] GPU and audio devices are now reconnected to host"
 }

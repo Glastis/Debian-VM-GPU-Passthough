@@ -7,11 +7,12 @@ source "$(dirname "$0")/utils/logging.sh"
 source "$(dirname "$0")/utils/root.sh"
 source "$(dirname "$0")/utils/gpu.sh"
 source "$(dirname "$0")/utils/args.sh"
+source "$(dirname "$0")/utils/pci.sh"
 
 generate_rom() {
     log "[INFO] Generating GPU ROM..."
     
-    local full_pci_id=$(lspci -D | grep "$GPU_PCI" | cut -d' ' -f1)
+    local full_pci_id=$(get_full_pci_id "$GPU_PCI")
     if [ -z "$full_pci_id" ]; then
         log "[ERROR] PCI ID $GPU_PCI not found"
         exit 1

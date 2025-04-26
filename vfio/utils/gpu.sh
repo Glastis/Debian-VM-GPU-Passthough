@@ -73,7 +73,7 @@ select_gpu() {
 }
 
 detect_gpu() {
-    local gpu_info=$(lspci -nn | grep -i "nvidia\|geforce\|quadro" | grep -i "vga\|3d\|display")
+    local gpu_info=$(lspci -D -nn | grep -i "nvidia\|geforce\|quadro" | grep -i "vga\|3d\|display")
     if [ -z "$gpu_info" ]; then
         log "Error: No NVIDIA GPU detected"
         log "Please run the script with -g option to specify GPU PCI address"

@@ -3,6 +3,7 @@
 source "$(dirname "$0")/utils/gpu.sh"
 source "$(dirname "$0")/utils/audio.sh"
 source "$(dirname "$0")/utils/logging.sh"
+source "$(dirname "$0")/utils/pci.sh"
 
 NVIDIA_MODS="nvidia_drm nvidia_modeset nvidia_uvm nvidia"
 UNBIND_AUDIO=false
@@ -80,9 +81,9 @@ unload_nvidia_modules() {
 unbind_pci_devices() {
     log "[3] PCI unbinding"
     if [ "$UNBIND_AUDIO" = "true" ] && [ -n "$AUDIO_PCI" ]; then
-        echo $AUDIO_PCI > /sys/bus/pci/drivers/snd_hda_intel/unbind
+        echo $(get_full_pci_id "$AUDIO_PCI") > /sys/bus/pci/drivers/snd_hda_intel/unbind
     fi
-    echo $GPU_PCI > /sys/bus/pci/drivers/nvidia/unbind
+    echo $(get_full_pci_id "$GPU_PCI") > /sys/bus/pci/drivers/nvidia/unbind
 }
 
 bind_to_vfio() {
@@ -91,9 +92,9 @@ bind_to_vfio() {
     modprobe vfio_pci
     modprobe vfio_iommu_type1
 
-    echo $GPU_PCI > /sys/bus/pci/drivers/vfio-pci/bind
+    echo $(get_full_pci_id "$GPU_PCI") > /sys/bus/pci/drivers/vfio-pci/bind
     if [ "$UNBIND_AUDIO" = "true" ] && [ -n "$AUDIO_PCI" ]; then
-        echo $AUDIO_PCI > /sys/bus/pci/drivers/vfio-pci/bind
+        echo $(get_full_pci_id "$AUDIO_PCI") > /sys/bus/pci/drivers/vfio-pci/bind
     fi
 }
 

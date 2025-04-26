@@ -1,28 +1,43 @@
 #!/bin/bash
-set -e
+#set -e
 
 source "$(dirname "$0")/utils/logging.sh"
 source "$(dirname "$0")/utils/root.sh"
 source "$(dirname "$0")/utils/gpu.sh"
 source "$(dirname "$0")/utils/audio.sh"
 source "$(dirname "$0")/utils/args.sh"
+source "$(dirname "$0")/utils/pci.sh"
 
 SILENT=false
 UNBIND_AUDIO=false
+PATH_PCI="/sys/bus/pci"
+PATH_PCI_DRIVERS="$PATH_PCI/drivers"
+PATH_PCI_DEVICES="$PATH_PCI/devices"
+GROUP="16"
+GROUP_PATH="/sys/kernel/iommu_groups/$GROUP/devices"
+VFIO_DRIVER="vfio-pci"
 
 load_vfio_modules() {
     log "[INFO] Loading VFIO modules..."
-    modprobe vfio
     modprobe vfio_pci
-    modprobe vfio_iommu_type1
 }
 
-bind_devices() {
-    log "[INFO] Binding devices to VFIO driver..."
-    echo $GPU_PCI > /sys/bus/pci/drivers/vfio-pci/bind
-    if [ "$UNBIND_AUDIO" = "true" ] && [ -n "$AUDIO_PCI" ]; then
-        echo $AUDIO_PCI > /sys/bus/pci/drivers/vfio-pci/bind
+unload_previous_driver() {
+    DEVICE="$1"
+    log "[INFO] Unloading previous driver for $DEVICE"
+    if [ -L "$PATH_PCI_DRIVERS/$DEVICE" ]; then
+        echo "[INFO] → Unbind de $DEVICE"
+        echo "$DEVICE" > "$PATH_PCI_DRIVERS/$DEVICE/unbind"
+    else
+        echo "[INFO] → Aucun driver actif pour $DEVICE"
     fi
+}
+
+bind_device() {
+    DEVICE="$1"
+    log "[INFO] Binding device $DEVICE to VFIO driver"
+    echo "$VFIO_DRIVER" > "$PATH_PCI_DEVICES/$DEVICE/driver_override"
+    echo "$DEVICE" > $PATH_PCI/drivers_probe
 }
 
 show_help() {
@@ -41,12 +56,36 @@ show_help() {
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
-        if ! parse_common_args "$1" "$2"; then
-            log "Unknown option: $1"
-            show_help
-            exit 1
-        fi
-        shift
+        case $1 in
+            -g|--gpu-pci)
+                GPU_PCI="$2"
+                shift 2
+                ;;
+            -a|--audio-pci)
+                AUDIO_PCI="$2"
+                shift 2
+                ;;
+            -i|--interactive)
+                INTERACTIVE="true"
+                shift
+                ;;
+            -n|--no-audio)
+                UNBIND_AUDIO=false
+                shift
+                ;;
+            -s|--silent)
+                SILENT=true
+                shift
+                ;;
+            -h|--help)
+                show_help
+                ;;
+            *)
+                log "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
     done
 }
 
@@ -55,7 +94,11 @@ main() {
     parse_args "$@"
     detect_devices
     load_vfio_modules
-    bind_devices
+    for dev_path in $GROUP_PATH; do
+        DEVICE=$(basename "$devpath")
+        unload_previous_driver "$DEVICE"
+        bind_device "$DEVICE"
+    done
     log "[OK] GPU and audio devices are now ready for passthrough"
 }
 
