@@ -30,7 +30,7 @@ This project provides a complete setup for GPU passthrough with QEMU and VFIO. I
 ## Dependencies
 
 The following packages will be installed during the setup:
-- docker.io
+- docker-ce
 - dialog
 - pciutils
 - screen

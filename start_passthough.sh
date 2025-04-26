@@ -96,7 +96,7 @@ main() {
         -drive file=$DISK_IMG,format=qcow2,if=virtio \
         -boot order=c \
         -netdev user,id=net0 -device virtio-net,netdev=net0 \
-        -device vfio-pci,host=$GPU_PCI,x-vga=on,romfile=./3080.rom"
+        -device vfio-pci,host=$GPU_PCI,x-vga=on,romfile=./gpu.rom"
 
     if [ -n "$AUDIO_PCI" ]; then
         qemu_cmd+=" -device vfio-pci,host=$AUDIO_PCI"
