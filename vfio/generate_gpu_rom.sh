@@ -10,6 +10,14 @@ source "$(dirname "$0")/utils/args.sh"
 
 generate_rom() {
     log "[INFO] Generating GPU ROM..."
+    
+    local full_pci_id=$(lspci -D | grep "$GPU_PCI" | cut -d' ' -f1)
+    if [ -z "$full_pci_id" ]; then
+        log "[ERROR] PCI ID $GPU_PCI not found"
+        exit 1
+    fi
+    GPU_PCI=$full_pci_id
+    
     log "[INFO] Temporarily enabling ROM for $GPU_PCI..."
     echo 1 | sudo tee /sys/bus/pci/devices/$GPU_PCI/rom > /dev/null || true
 
