@@ -12,6 +12,7 @@ SCREEN_NAME="vm_passthrough"
 VM_SCRIPT="vfio/launch_vm.sh"
 USB_DEVICES=()
 CURSES=true
+DISK_IMG=""
 
 select_usb_curses() {
     local usb_list=$(lsusb | sed 's/ID //' | sed 's/ Device /:/')
@@ -87,6 +88,7 @@ show_help() {
     echo "  -t, --text        Use text interface instead of curses"
     echo "  -n, --no-audio    Do not bind audio device"
     echo "  -s, --silent      Reduce verbosity"
+    echo "  -d, --disk        Path to virtual disk image (required)"
     echo "  -h, --help        Show this help message"
     exit 0
 }
@@ -118,6 +120,10 @@ parse_args() {
                 SILENT=true
                 shift
                 ;;
+            -d|--disk)
+                DISK_IMG="$2"
+                shift 2
+                ;;
             -h|--help)
                 show_help
                 ;;
@@ -132,8 +138,8 @@ parse_args() {
 
 cleanup() {
     log "[INFO] Cleaning up..."
-    "vfio/reconnect_gpu_to_host.sh" -g "$GPU_PCI" -a "$AUDIO_PCI" -n "$UNBIND_AUDIO" -s "$SILENT"
     screen -X -S "$SCREEN_NAME" quit
+    "vfio/reconnect_gpu_to_host.sh" -g "$GPU_PCI" -a "$AUDIO_PCI" -n "$UNBIND_AUDIO" -s "$SILENT"
 }
 
 main() {
@@ -141,6 +147,12 @@ main() {
     parse_args "$@"
     detect_devices
     detect_usb
+
+    if [ -z "$DISK_IMG" ]; then
+        log "[ERROR] Virtual disk image path is required"
+        log "Use -d or --disk option to specify the path"
+        exit 1
+    fi
 
     if [ "$INTERACTIVE" = "true" ]; then
         select_usb
@@ -155,7 +167,7 @@ main() {
 
     trap cleanup EXIT
 
-    local vm_args="-g \"$GPU_PCI\""
+    local vm_args="-g \"$GPU_PCI\" -d \"$DISK_IMG\""
     if [ -n "$AUDIO_PCI" ]; then
         vm_args+=" -a \"$AUDIO_PCI\""
     fi
